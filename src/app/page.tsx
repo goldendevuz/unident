@@ -12,10 +12,10 @@ import { redirect } from "next/navigation";
 export default async function Home() {
   const user = await currentUser();
 
-  // the best way of syncing => webhooks
+  // safe sync (no crash anymore)
   await syncUser();
 
-  // redirect auth user to dashboard
+  // authenticated user only redirect
   if (user) redirect("/dashboard");
 
   return (

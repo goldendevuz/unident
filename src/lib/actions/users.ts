@@ -4,25 +4,30 @@ import { currentUser } from "@clerk/nextjs/server";
 import { prisma } from "../prisma";
 
 export async function syncUser() {
-  try {
-    const user = await currentUser();
-    if (!user) return;
+  const clerkUser = await currentUser();
 
-    const existingUser = await prisma.user.findUnique({ where: { clerkId: user.id } });
-    if (existingUser) return existingUser;
-
-    const dbUser = await prisma.user.create({
-      data: {
-        clerkId: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.emailAddresses[0].emailAddress,
-        phone: user.phoneNumbers[0]?.phoneNumber,
-      },
-    });
-
-    return dbUser;
-  } catch (error) {
-    console.log("Error in syncUser server action", error);
+  // ❗ guest user = normal state, not error
+  if (!clerkUser) {
+    return null;
   }
+
+  const existingUser = await prisma.user.findUnique({
+    where: {
+      clerkId: clerkUser.id,
+    },
+  });
+
+  if (existingUser) {
+    return existingUser;
+  }
+
+  return prisma.user.create({
+    data: {
+      clerkId: clerkUser.id,
+      email: clerkUser.emailAddresses[0]?.emailAddress ?? "",
+      firstName: clerkUser.firstName,
+      lastName: clerkUser.lastName,
+      phone: clerkUser.phoneNumbers[0]?.phoneNumber,
+    },
+  });
 }
