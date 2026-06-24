@@ -4,6 +4,41 @@ import { prisma } from "../prisma";
 import { AppointmentStatus } from "@prisma/client";
 import { syncUser } from "./users";
 
+/**
+ * SAFE AUTH WRAPPER
+ */
+async function requireUser() {
+  const user = await syncUser();
+
+  if (!user?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  return user;
+}
+
+/**
+ * SHARED INCLUDE (DRY)
+ */
+const appointmentInclude = {
+  user: {
+    select: {
+      firstName: true,
+      lastName: true,
+      email: true,
+    },
+  },
+  doctor: {
+    select: {
+      name: true,
+      imageUrl: true,
+    },
+  },
+};
+
+/**
+ * TRANSFORMER
+ */
 function transformAppointment(appointment: any) {
   return {
     ...appointment,
@@ -15,24 +50,13 @@ function transformAppointment(appointment: any) {
   };
 }
 
+/**
+ * ALL APPOINTMENTS (ADMIN)
+ */
 export async function getAppointments() {
   try {
     const appointments = await prisma.appointment.findMany({
-      include: {
-        user: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-        doctor: {
-          select: {
-            name: true,
-            imageUrl: true,
-          },
-        },
-      },
+      include: appointmentInclude,
       orderBy: {
         createdAt: "desc",
       },
@@ -40,35 +64,27 @@ export async function getAppointments() {
 
     return appointments.map(transformAppointment);
   } catch (error) {
-    console.log("Error fetching appointments:", error);
+    console.error("Error fetching appointments:", error);
     throw new Error("Failed to fetch appointments");
   }
 }
 
+/**
+ * USER APPOINTMENTS
+ */
 export async function getUserAppointments() {
   try {
-    const user = await syncUser();
+    const user = await requireUser();
 
     const appointments = await prisma.appointment.findMany({
       where: {
         userId: user.id,
       },
-      include: {
-        user: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-        doctor: {
-          select: {
-            name: true,
-            imageUrl: true,
-          },
-        },
-      },
-      orderBy: [{ date: "asc" }, { time: "asc" }],
+      include: appointmentInclude,
+      orderBy: [
+        { date: "asc" },
+        { time: "asc" },
+      ],
     });
 
     return appointments.map(transformAppointment);
@@ -78,15 +94,16 @@ export async function getUserAppointments() {
   }
 }
 
+/**
+ * USER STATS
+ */
 export async function getUserAppointmentStats() {
   try {
-    const user = await syncUser();
+    const user = await requireUser();
 
     const [totalCount, completedCount] = await Promise.all([
       prisma.appointment.count({
-        where: {
-          userId: user.id,
-        },
+        where: { userId: user.id },
       }),
       prisma.appointment.count({
         where: {
@@ -110,6 +127,9 @@ export async function getUserAppointmentStats() {
   }
 }
 
+/**
+ * BOOKED SLOTS
+ */
 export async function getBookedTimeSlots(doctorId: string, date: string) {
   try {
     const appointments = await prisma.appointment.findMany({
@@ -125,13 +145,16 @@ export async function getBookedTimeSlots(doctorId: string, date: string) {
       },
     });
 
-    return appointments.map((appointment) => appointment.time);
+    return appointments.map((a) => a.time);
   } catch (error) {
     console.error("Error fetching booked time slots:", error);
     return [];
   }
 }
 
+/**
+ * BOOK APPOINTMENT
+ */
 interface BookAppointmentInput {
   doctorId: string;
   date: string;
@@ -145,7 +168,7 @@ export async function bookAppointment(input: BookAppointmentInput) {
       throw new Error("Doctor, date, and time are required");
     }
 
-    const user = await syncUser();
+    const user = await requireUser();
 
     const appointment = await prisma.appointment.create({
       data: {
@@ -156,21 +179,7 @@ export async function bookAppointment(input: BookAppointmentInput) {
         reason: input.reason || "General consultation",
         status: "CONFIRMED",
       },
-      include: {
-        user: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-        doctor: {
-          select: {
-            name: true,
-            imageUrl: true,
-          },
-        },
-      },
+      include: appointmentInclude,
     });
 
     return transformAppointment(appointment);
@@ -180,6 +189,9 @@ export async function bookAppointment(input: BookAppointmentInput) {
   }
 }
 
+/**
+ * UPDATE STATUS
+ */
 export async function updateAppointmentStatus(input: {
   id: string;
   status: AppointmentStatus;
